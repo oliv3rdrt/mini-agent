@@ -77,7 +77,7 @@ Type `exit` or `quit` to leave.
 | Tool | What it does |
 | --- | --- |
 | `read_file` | Read a text file |
-| `write_file` | Write text to a file, creating folders if needed |
+| `write_file` | Write text to a file, creating folders if needed; asks before overwriting an existing file |
 | `list_files` | List the contents of a directory |
 | `run_command` | Run a shell command after you confirm with `y` |
 

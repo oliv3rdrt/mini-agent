@@ -16,6 +16,33 @@ def test_write_file_creates_parent_directories(tmp_path):
     assert path.read_text(encoding="utf-8") == "x"
 
 
+def test_write_file_new_file_does_not_prompt(tmp_path, monkeypatch):
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a brand new file should not prompt for overwrite")
+
+    monkeypatch.setattr("builtins.input", refuse)
+    path = tmp_path / "new.txt"
+    tools.write_file(str(path), "hi")
+    assert path.read_text(encoding="utf-8") == "hi"
+
+
+def test_write_file_overwrite_confirmed(tmp_path, monkeypatch):
+    path = tmp_path / "f.txt"
+    path.write_text("old", encoding="utf-8")
+    monkeypatch.setattr("builtins.input", lambda *_: "y")
+    tools.write_file(str(path), "new")
+    assert path.read_text(encoding="utf-8") == "new"
+
+
+def test_write_file_overwrite_declined_keeps_original(tmp_path, monkeypatch):
+    path = tmp_path / "f.txt"
+    path.write_text("old", encoding="utf-8")
+    monkeypatch.setattr("builtins.input", lambda *_: "n")
+    result = tools.write_file(str(path), "new")
+    assert path.read_text(encoding="utf-8") == "old"
+    assert "declined" in result
+
+
 def test_read_missing_file(tmp_path):
     result = tools.read_file(str(tmp_path / "nope.txt"))
     assert result.startswith("No file at")

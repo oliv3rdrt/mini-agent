@@ -19,6 +19,11 @@ def read_file(path):
 
 def write_file(path, content):
     p = Path(path).expanduser()
+    # Ask before clobbering a file that is already there. New files write freely.
+    if p.exists():
+        print(f"\n  {path} already exists.")
+        if input("  overwrite it? [y/N] ").strip().lower() != "y":
+            return "Write was declined by the user."
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
     return f"Wrote {len(content)} characters to {path}"
@@ -86,7 +91,8 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Write text to a file, creating folders as needed.",
+            "description": "Write text to a file, creating folders as needed. "
+            "Asks the user before overwriting a file that already exists.",
             "parameters": {
                 "type": "object",
                 "properties": {
