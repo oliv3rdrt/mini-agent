@@ -1,5 +1,6 @@
 """Tools the agent can call, plus the schemas the model sees."""
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -7,8 +8,34 @@ from pathlib import Path
 MAX_OUTPUT = 4000
 
 
-def read_file(path):
+def _root():
+    """The sandbox root, if one is set via MINI_AGENT_ROOT, else None."""
+    value = os.getenv("MINI_AGENT_ROOT")
+    return Path(value).expanduser().resolve() if value else None
+
+
+def _resolve(path):
+    """Resolve a path, keeping it inside the sandbox root when one is set.
+
+    Returns (resolved_path, None) when the path is allowed, or
+    (None, message) when it would escape the root.
+    """
     p = Path(path).expanduser()
+    root = _root()
+    if root is None:
+        return p, None
+    full = (p if p.is_absolute() else root / p).resolve()
+    try:
+        full.relative_to(root)
+    except ValueError:
+        return None, f"Path is outside the working directory: {path}"
+    return full, None
+
+
+def read_file(path):
+    p, error = _resolve(path)
+    if error:
+        return error
     if not p.is_file():
         return f"No file at {path}"
     text = p.read_text(encoding="utf-8", errors="replace")
@@ -18,7 +45,9 @@ def read_file(path):
 
 
 def write_file(path, content):
-    p = Path(path).expanduser()
+    p, error = _resolve(path)
+    if error:
+        return error
     # Ask before clobbering a file that is already there. New files write freely.
     if p.exists():
         print(f"\n  {path} already exists.")
@@ -30,7 +59,9 @@ def write_file(path, content):
 
 
 def list_files(directory="."):
-    p = Path(directory).expanduser()
+    p, error = _resolve(directory)
+    if error:
+        return error
     if not p.is_dir():
         return f"No directory at {directory}"
     entries = []

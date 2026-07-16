@@ -87,3 +87,31 @@ def test_dispatch_bad_arguments():
     # read_file needs a 'path', so an empty argument map is a caller mistake.
     result = tools.dispatch("read_file", {})
     assert result.startswith("Tool error:")
+
+
+def test_no_sandbox_by_default(tmp_path, monkeypatch):
+    # Without MINI_AGENT_ROOT set, any readable path is allowed.
+    monkeypatch.delenv("MINI_AGENT_ROOT", raising=False)
+    path = tmp_path / "x.txt"
+    path.write_text("ok", encoding="utf-8")
+    assert tools.read_file(str(path)) == "ok"
+
+
+def test_sandbox_allows_paths_inside_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("MINI_AGENT_ROOT", str(tmp_path))
+    (tmp_path / "a.txt").write_text("hi", encoding="utf-8")
+    assert tools.read_file("a.txt") == "hi"
+
+
+def test_sandbox_blocks_escape(tmp_path, monkeypatch):
+    monkeypatch.setenv("MINI_AGENT_ROOT", str(tmp_path))
+    result = tools.read_file("../../../etc/hosts")
+    assert result.startswith("Path is outside the working directory")
+
+
+def test_sandbox_blocks_write_escape(tmp_path, monkeypatch):
+    monkeypatch.setenv("MINI_AGENT_ROOT", str(tmp_path))
+    outside = tmp_path.parent / "escaped.txt"
+    result = tools.write_file(str(outside), "nope")
+    assert result.startswith("Path is outside the working directory")
+    assert not outside.exists()
