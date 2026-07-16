@@ -2,9 +2,10 @@
 
 import json
 import os
+import sys
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError, AuthenticationError, APIStatusError
 
 import tools
 
@@ -18,13 +19,49 @@ SYSTEM_PROMPT = (
 MAX_STEPS = 10
 
 
+def backend_hint():
+    """A clear message pointing at the usual backend setup problems."""
+    where = os.getenv("OPENAI_BASE_URL") or "the OpenAI API"
+    return (
+        f"Could not reach {where}.\n"
+        "  - If you are running a local model, make sure the server is up "
+        "(for Ollama, run 'ollama serve').\n"
+        "  - Check OPENAI_BASE_URL, OPENAI_API_KEY and OPENAI_MODEL in your .env."
+    )
+
+
+def check_backend(client):
+    """Fail fast on startup with a clear message if the backend is unreachable."""
+    try:
+        client.models.list()
+    except APIConnectionError:
+        sys.exit(backend_hint())
+    except AuthenticationError:
+        sys.exit("Authentication failed. Check OPENAI_API_KEY in your .env.")
+    except APIStatusError:
+        # The backend answered, so it is reachable. Some servers do not expose a
+        # models endpoint; any real problem will surface on the first turn.
+        pass
+
+
 def run_turn(client, model, messages):
     for _ in range(MAX_STEPS):
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=tools.TOOLS,
-        )
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools.TOOLS,
+            )
+        except APIConnectionError:
+            print(f"\n{backend_hint()}\n")
+            return
+        except AuthenticationError:
+            print("\nAuthentication failed. Check OPENAI_API_KEY in your .env.\n")
+            return
+        except APIStatusError as error:
+            print(f"\nThe model backend returned an error: {error.message}\n")
+            return
+
         message = response.choices[0].message
         messages.append(message)
 
@@ -57,6 +94,8 @@ def main():
     # server, Groq, and so on). Left unset, it talks to OpenAI directly.
     client = OpenAI(base_url=os.getenv("OPENAI_BASE_URL") or None)
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    check_backend(client)
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
