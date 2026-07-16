@@ -84,6 +84,16 @@ Type `exit` or `quit` to leave.
 `run_command` always asks before it runs anything, so the agent can never touch
 your shell without a yes.
 
+### Keeping the file tools in one directory
+
+By default the file tools can read and write anywhere you can. Set
+`MINI_AGENT_ROOT` to a directory to sandbox them: any `read_file`, `write_file`,
+or `list_files` path that resolves outside that directory is refused.
+
+```bash
+MINI_AGENT_ROOT="$(pwd)" python3 agent.py
+```
+
 ## Tests
 
 The tools and the dispatch layer have a small test suite.
