@@ -84,6 +84,15 @@ Type `exit` or `quit` to leave.
 `run_command` always asks before it runs anything, so the agent can never touch
 your shell without a yes.
 
+## Tests
+
+The tools and the dispatch layer have a small test suite.
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Adding your own tool
 
 1. Write a function in `tools.py`.
