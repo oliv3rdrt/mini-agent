@@ -15,8 +15,8 @@ The whole thing is two files:
 - `agent.py` runs the chat loop. Each turn it sends the conversation to the
   model. If the model asks for a tool, the agent runs it, feeds the result back,
   and repeats. When the model replies with plain text instead of a tool call,
-  that answer is printed and the turn ends. A step cap keeps a single turn from
-  looping on tools forever.
+  that answer streams to the screen as it is generated and the turn ends. A step
+  cap keeps a single turn from looping on tools forever.
 - `tools.py` holds the four tools and the schemas that describe them to the
   model.
 
