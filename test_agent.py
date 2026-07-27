@@ -63,3 +63,34 @@ def test_stream_response_keeps_multiple_tool_calls_in_order():
     message = agent.stream_response(_FakeStreamClient(chunks), "model", [])
     names = [call["function"]["name"] for call in message["tool_calls"]]
     assert names == ["list_files", "read_file"]
+
+
+def test_save_and_load_history_round_trip(tmp_path):
+    path = tmp_path / "session.jsonl"
+    messages = [
+        {"role": "system", "content": "hi"},
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "1",
+                    "type": "function",
+                    "function": {"name": "list_files", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "1", "content": "a\nb"},
+    ]
+    agent.save_history(str(path), messages)
+    assert agent.load_history(str(path)) == messages
+
+
+def test_load_history_missing_file_returns_none(tmp_path):
+    assert agent.load_history(str(tmp_path / "nope.jsonl")) is None
+
+
+def test_parse_args_reads_session_flag():
+    args = agent.parse_args(["--session", "s.jsonl"])
+    assert args.session == "s.jsonl"

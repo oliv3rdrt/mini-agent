@@ -72,6 +72,18 @@ you > create a file called notes.txt with a short todo list
 
 Type `exit` or `quit` to leave.
 
+## Saving and resuming a session
+
+Pass `--session FILE` to save the conversation and resume it next time:
+
+```bash
+python3 agent.py --session chat.jsonl
+```
+
+The file is a JSONL log, one message per line, rewritten after every turn. If
+the file already exists the conversation picks up where it left off, so you can
+stop and come back to it, or keep it around as a record of a past session.
+
 ## Tools
 
 | Tool | What it does |

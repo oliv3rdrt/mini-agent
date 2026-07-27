@@ -1,5 +1,6 @@
 """A small command-line agent that can call tools to get things done."""
 
+import argparse
 import json
 import os
 import sys
@@ -148,7 +149,45 @@ def run_turn(client, model, messages):
     print("\nagent > Stopped after too many tool steps.\n")
 
 
+def load_history(path):
+    """Load a conversation from a JSONL session file.
+
+    Returns the list of messages, or None when the file does not exist yet so the
+    caller can start a fresh conversation.
+    """
+    if not os.path.exists(path):
+        return None
+    messages = []
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                messages.append(json.loads(line))
+    return messages or None
+
+
+def save_history(path, messages):
+    """Save the conversation to a JSONL session file, one message per line."""
+    with open(path, "w", encoding="utf-8") as handle:
+        for message in messages:
+            handle.write(json.dumps(message) + "\n")
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="A small command-line agent that can call tools."
+    )
+    parser.add_argument(
+        "--session",
+        metavar="FILE",
+        help="Load and save the conversation to a JSONL session file so it can "
+        "be resumed later.",
+    )
+    return parser.parse_args(argv)
+
+
 def main():
+    args = parse_args()
     load_dotenv()
     # base_url lets us point at any OpenAI-compatible backend (a local Ollama
     # server, Groq, and so on). Left unset, it talks to OpenAI directly.
@@ -157,7 +196,13 @@ def main():
 
     check_backend(client)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Resume a saved session when one is given, otherwise start with just the
+    # system prompt.
+    messages = load_history(args.session) if args.session else None
+    if messages:
+        print(f"Resumed {len(messages)} messages from {args.session}.\n")
+    else:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     print("mini-agent is ready. Type a request, or 'exit' to quit.\n")
 
@@ -175,6 +220,9 @@ def main():
 
         messages.append({"role": "user", "content": user_input})
         run_turn(client, model, messages)
+        # Save after each turn so a session survives even if the process stops.
+        if args.session:
+            save_history(args.session, messages)
 
 
 if __name__ == "__main__":
