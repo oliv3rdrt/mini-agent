@@ -2,10 +2,17 @@
 
 import os
 import subprocess
+import urllib.error
+import urllib.request
+from html.parser import HTMLParser
 from pathlib import Path
 
 # Cap tool output so a big file or noisy command does not flood the context.
 MAX_OUTPUT = 4000
+
+# Stop reading a web page once it hits this size, before we even trim the text,
+# so a huge download cannot tie things up.
+MAX_FETCH_BYTES = 2_000_000
 
 
 def _root():
@@ -84,11 +91,78 @@ def run_command(command):
     return output or f"(exit code {result.returncode}, no output)"
 
 
+class _TextExtractor(HTMLParser):
+    """Pull the visible text out of an HTML page.
+
+    Script and style blocks are skipped so their contents do not end up in the
+    text the model reads.
+    """
+
+    _SKIP_TAGS = {"script", "style"}
+
+    def __init__(self):
+        super().__init__()
+        self._parts = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP_TAGS and self._skip_depth:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if self._skip_depth:
+            return
+        text = data.strip()
+        if text:
+            self._parts.append(text)
+
+    def text(self):
+        return "\n".join(self._parts)
+
+
+def fetch_url(url):
+    # Only fetch over the web, never file:// or other local schemes.
+    if not url.lower().startswith(("http://", "https://")):
+        return "Only http and https URLs are supported."
+    # A user agent keeps some sites from refusing the request outright.
+    request = urllib.request.Request(url, headers={"User-Agent": "mini-agent"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            content_type = response.headers.get_content_type()
+            raw = response.read(MAX_FETCH_BYTES)
+    except (urllib.error.URLError, ValueError, TimeoutError) as error:
+        return f"Could not fetch {url}: {error}"
+
+    body = raw.decode(charset, errors="replace")
+    # Strip the tags out of HTML; other content types (plain text, JSON) are
+    # already readable as they are.
+    if "html" in content_type:
+        parser = _TextExtractor()
+        parser.feed(body)
+        text = parser.text()
+    else:
+        text = body
+
+    text = text.strip()
+    if not text:
+        return "(no readable text found)"
+    # Trim to the same cap as the other tools so a big page cannot flood the context.
+    if len(text) > MAX_OUTPUT:
+        return text[:MAX_OUTPUT] + "\n... (truncated)"
+    return text
+
+
 HANDLERS = {
     "read_file": read_file,
     "write_file": write_file,
     "list_files": list_files,
     "run_command": run_command,
+    "fetch_url": fetch_url,
 }
 
 
@@ -161,6 +235,23 @@ TOOLS = [
                     "command": {"type": "string", "description": "The command to run."}
                 },
                 "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": "Fetch a web page or text URL and return its readable text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The http or https URL to fetch.",
+                    }
+                },
+                "required": ["url"],
             },
         },
     },

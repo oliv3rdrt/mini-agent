@@ -80,6 +80,7 @@ Type `exit` or `quit` to leave.
 | `write_file` | Write text to a file, creating folders if needed; asks before overwriting an existing file |
 | `list_files` | List the contents of a directory |
 | `run_command` | Run a shell command after you confirm with `y` |
+| `fetch_url` | Fetch a web page or text URL and return its readable text |
 
 `run_command` always asks before it runs anything, so the agent can never touch
 your shell without a yes.

@@ -1,6 +1,30 @@
 """Tests for the tools and the dispatch layer."""
 
+import email
+import urllib.error
+import urllib.request
+
 import tools
+
+
+class _FakeResponse:
+    """Stand-in for the object urllib returns, enough for fetch_url to read."""
+
+    def __init__(self, body, content_type="text/html; charset=utf-8"):
+        self._body = body.encode("utf-8")
+        self.headers = email.message.Message()
+        self.headers["Content-Type"] = content_type
+
+    def read(self, amount=-1):
+        if amount is None or amount < 0:
+            return self._body
+        return self._body[:amount]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
 
 def test_write_then_read_file(tmp_path):
@@ -115,3 +139,56 @@ def test_sandbox_blocks_write_escape(tmp_path, monkeypatch):
     result = tools.write_file(str(outside), "nope")
     assert result.startswith("Path is outside the working directory")
     assert not outside.exists()
+
+
+def test_fetch_url_rejects_non_http_scheme():
+    assert tools.fetch_url("file:///etc/passwd") == "Only http and https URLs are supported."
+
+
+def test_fetch_url_extracts_readable_text_from_html(monkeypatch):
+    html = (
+        "<html><head><style>.x{color:red}</style></head>"
+        "<body><h1>Title</h1><script>var secret = 1;</script>"
+        "<p>Hello world</p></body></html>"
+    )
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _FakeResponse(html))
+    result = tools.fetch_url("https://example.com")
+    assert "Title" in result
+    assert "Hello world" in result
+    # Script and style contents must not leak into the text.
+    assert "secret" not in result
+    assert "color:red" not in result
+
+
+def test_fetch_url_returns_plain_text_as_is(monkeypatch):
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *a, **k: _FakeResponse("just text", content_type="text/plain; charset=utf-8"),
+    )
+    assert tools.fetch_url("https://example.com/x.txt") == "just text"
+
+
+def test_fetch_url_truncates_long_output(monkeypatch):
+    body = "<p>" + "a" * (tools.MAX_OUTPUT + 500) + "</p>"
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _FakeResponse(body))
+    result = tools.fetch_url("https://example.com")
+    assert result.endswith("... (truncated)")
+    assert len(result) <= tools.MAX_OUTPUT + len("\n... (truncated)")
+
+
+def test_fetch_url_reports_network_errors(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise urllib.error.URLError("boom")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert tools.fetch_url("https://example.com").startswith("Could not fetch")
+
+
+def test_fetch_url_dispatches(monkeypatch):
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *a, **k: _FakeResponse("hi", content_type="text/plain"),
+    )
+    assert tools.dispatch("fetch_url", {"url": "https://example.com"}) == "hi"
