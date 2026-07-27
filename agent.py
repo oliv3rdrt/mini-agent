@@ -1,5 +1,6 @@
 """A small command-line agent that can call tools to get things done."""
 
+import argparse
 import json
 import os
 import sys
@@ -44,14 +45,74 @@ def check_backend(client):
         pass
 
 
+def stream_response(client, model, messages):
+    """Send one request with streaming on, print the reply as it arrives, and
+    return the assistant message rebuilt from the streamed chunks.
+
+    The model streams plain text a few characters at a time, and it streams any
+    tool calls as fragments, so both are stitched back together here into the
+    single message shape the API expects to receive back.
+    """
+    stream = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=tools.TOOLS,
+        stream=True,
+    )
+
+    content_parts = []
+    # Tool calls arrive in pieces keyed by their position in the list. Each piece
+    # carries a bit of the id, the name, or the arguments string.
+    tool_calls = {}
+    started_reply = False
+
+    for chunk in stream:
+        if not chunk.choices:
+            continue
+        delta = chunk.choices[0].delta
+
+        if delta.content:
+            # Print the "agent >" prefix once, on the first token of text.
+            if not started_reply:
+                print("\nagent > ", end="", flush=True)
+                started_reply = True
+            print(delta.content, end="", flush=True)
+            content_parts.append(delta.content)
+
+        for piece in delta.tool_calls or []:
+            call = tool_calls.setdefault(
+                piece.index, {"id": None, "name": None, "arguments": ""}
+            )
+            if piece.id:
+                call["id"] = piece.id
+            if piece.function and piece.function.name:
+                call["name"] = piece.function.name
+            if piece.function and piece.function.arguments:
+                call["arguments"] += piece.function.arguments
+
+    if started_reply:
+        print()  # finish the streamed line
+
+    content = "".join(content_parts)
+    ordered_calls = [tool_calls[index] for index in sorted(tool_calls)]
+
+    message = {"role": "assistant", "content": content or None}
+    if ordered_calls:
+        message["tool_calls"] = [
+            {
+                "id": call["id"],
+                "type": "function",
+                "function": {"name": call["name"], "arguments": call["arguments"]},
+            }
+            for call in ordered_calls
+        ]
+    return message
+
+
 def run_turn(client, model, messages):
     for _ in range(MAX_STEPS):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=tools.TOOLS,
-            )
+            message = stream_response(client, model, messages)
         except APIConnectionError:
             print(f"\n{backend_hint()}\n")
             return
@@ -62,17 +123,17 @@ def run_turn(client, model, messages):
             print(f"\nThe model backend returned an error: {error.message}\n")
             return
 
-        message = response.choices[0].message
         messages.append(message)
 
-        if not message.tool_calls:
-            print(f"\nagent > {message.content}\n")
+        tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            print()  # blank line after the reply
             return
 
-        for call in message.tool_calls:
-            name = call.function.name
+        for call in tool_calls:
+            name = call["function"]["name"]
             try:
-                arguments = json.loads(call.function.arguments or "{}")
+                arguments = json.loads(call["function"]["arguments"] or "{}")
             except json.JSONDecodeError:
                 arguments = {}
             print(f"  [tool] {name} {arguments}")
@@ -80,7 +141,7 @@ def run_turn(client, model, messages):
             messages.append(
                 {
                     "role": "tool",
-                    "tool_call_id": call.id,
+                    "tool_call_id": call["id"],
                     "content": str(result),
                 }
             )
@@ -88,7 +149,50 @@ def run_turn(client, model, messages):
     print("\nagent > Stopped after too many tool steps.\n")
 
 
+def load_history(path):
+    """Load a conversation from a JSONL session file.
+
+    Returns the list of messages, or None when the file does not exist yet so the
+    caller can start a fresh conversation.
+    """
+    if not os.path.exists(path):
+        return None
+    messages = []
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                messages.append(json.loads(line))
+    return messages or None
+
+
+def save_history(path, messages):
+    """Save the conversation to a JSONL session file, one message per line."""
+    with open(path, "w", encoding="utf-8") as handle:
+        for message in messages:
+            handle.write(json.dumps(message) + "\n")
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="A small command-line agent that can call tools."
+    )
+    parser.add_argument(
+        "prompt",
+        nargs="?",
+        help="Run this single prompt and exit. Omit it for the interactive loop.",
+    )
+    parser.add_argument(
+        "--session",
+        metavar="FILE",
+        help="Load and save the conversation to a JSONL session file so it can "
+        "be resumed later.",
+    )
+    return parser.parse_args(argv)
+
+
 def main():
+    args = parse_args()
     load_dotenv()
     # base_url lets us point at any OpenAI-compatible backend (a local Ollama
     # server, Groq, and so on). Left unset, it talks to OpenAI directly.
@@ -97,7 +201,22 @@ def main():
 
     check_backend(client)
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # Resume a saved session when one is given, otherwise start with just the
+    # system prompt.
+    messages = load_history(args.session) if args.session else None
+    if messages:
+        print(f"Resumed {len(messages)} messages from {args.session}.\n")
+    else:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Single-prompt mode: run one prompt straight from the command line and exit,
+    # which makes the agent usable from a script instead of only interactively.
+    if args.prompt:
+        messages.append({"role": "user", "content": args.prompt})
+        run_turn(client, model, messages)
+        if args.session:
+            save_history(args.session, messages)
+        return
 
     print("mini-agent is ready. Type a request, or 'exit' to quit.\n")
 
@@ -115,6 +234,9 @@ def main():
 
         messages.append({"role": "user", "content": user_input})
         run_turn(client, model, messages)
+        # Save after each turn so a session survives even if the process stops.
+        if args.session:
+            save_history(args.session, messages)
 
 
 if __name__ == "__main__":

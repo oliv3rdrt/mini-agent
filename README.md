@@ -15,8 +15,8 @@ The whole thing is two files:
 - `agent.py` runs the chat loop. Each turn it sends the conversation to the
   model. If the model asks for a tool, the agent runs it, feeds the result back,
   and repeats. When the model replies with plain text instead of a tool call,
-  that answer is printed and the turn ends. A step cap keeps a single turn from
-  looping on tools forever.
+  that answer streams to the screen as it is generated and the turn ends. A step
+  cap keeps a single turn from looping on tools forever.
 - `tools.py` holds the four tools and the schemas that describe them to the
   model.
 
@@ -72,6 +72,27 @@ you > create a file called notes.txt with a short todo list
 
 Type `exit` or `quit` to leave.
 
+### Run a single prompt
+
+Pass a prompt as an argument to answer it once and exit, which is handy from a
+script:
+
+```bash
+python3 agent.py "list the files here"
+```
+
+## Saving and resuming a session
+
+Pass `--session FILE` to save the conversation and resume it next time:
+
+```bash
+python3 agent.py --session chat.jsonl
+```
+
+The file is a JSONL log, one message per line, rewritten after every turn. If
+the file already exists the conversation picks up where it left off, so you can
+stop and come back to it, or keep it around as a record of a past session.
+
 ## Tools
 
 | Tool | What it does |
@@ -80,6 +101,7 @@ Type `exit` or `quit` to leave.
 | `write_file` | Write text to a file, creating folders if needed; asks before overwriting an existing file |
 | `list_files` | List the contents of a directory |
 | `run_command` | Run a shell command after you confirm with `y` |
+| `fetch_url` | Fetch a web page or text URL and return its readable text |
 
 `run_command` always asks before it runs anything, so the agent can never touch
 your shell without a yes.
