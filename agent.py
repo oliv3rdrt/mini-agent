@@ -178,6 +178,11 @@ def parse_args(argv=None):
         description="A small command-line agent that can call tools."
     )
     parser.add_argument(
+        "prompt",
+        nargs="?",
+        help="Run this single prompt and exit. Omit it for the interactive loop.",
+    )
+    parser.add_argument(
         "--session",
         metavar="FILE",
         help="Load and save the conversation to a JSONL session file so it can "
@@ -203,6 +208,15 @@ def main():
         print(f"Resumed {len(messages)} messages from {args.session}.\n")
     else:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Single-prompt mode: run one prompt straight from the command line and exit,
+    # which makes the agent usable from a script instead of only interactively.
+    if args.prompt:
+        messages.append({"role": "user", "content": args.prompt})
+        run_turn(client, model, messages)
+        if args.session:
+            save_history(args.session, messages)
+        return
 
     print("mini-agent is ready. Type a request, or 'exit' to quit.\n")
 

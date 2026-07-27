@@ -72,6 +72,15 @@ you > create a file called notes.txt with a short todo list
 
 Type `exit` or `quit` to leave.
 
+### Run a single prompt
+
+Pass a prompt as an argument to answer it once and exit, which is handy from a
+script:
+
+```bash
+python3 agent.py "list the files here"
+```
+
 ## Saving and resuming a session
 
 Pass `--session FILE` to save the conversation and resume it next time:

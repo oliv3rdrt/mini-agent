@@ -94,3 +94,20 @@ def test_load_history_missing_file_returns_none(tmp_path):
 def test_parse_args_reads_session_flag():
     args = agent.parse_args(["--session", "s.jsonl"])
     assert args.session == "s.jsonl"
+
+
+def test_parse_args_reads_single_prompt():
+    args = agent.parse_args(["list the files here"])
+    assert args.prompt == "list the files here"
+    assert args.session is None
+
+
+def test_parse_args_prompt_defaults_to_none_for_interactive_mode():
+    args = agent.parse_args([])
+    assert args.prompt is None
+
+
+def test_parse_args_combines_prompt_and_session():
+    args = agent.parse_args(["do a thing", "--session", "s.jsonl"])
+    assert args.prompt == "do a thing"
+    assert args.session == "s.jsonl"
