@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 
 from dotenv import load_dotenv
 from openai import OpenAI, APIConnectionError, AuthenticationError, APIStatusError
@@ -167,10 +168,27 @@ def load_history(path):
 
 
 def save_history(path, messages):
-    """Save the conversation to a JSONL session file, one message per line."""
-    with open(path, "w", encoding="utf-8") as handle:
-        for message in messages:
-            handle.write(json.dumps(message) + "\n")
+    """Save the conversation to a JSONL session file, one message per line.
+
+    The file is written to a temporary file in the same directory and then
+    swapped into place with os.replace, which is atomic. That way an interrupted
+    write can never leave the session file truncated or half-written: either the
+    old file is still there, or the new one is fully in place.
+    """
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            for message in messages:
+                handle.write(json.dumps(message) + "\n")
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Do not leave the temporary file behind if the write failed.
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def parse_args(argv=None):
