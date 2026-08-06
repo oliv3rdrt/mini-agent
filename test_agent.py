@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 import agent
 
 
@@ -89,6 +91,26 @@ def test_save_and_load_history_round_trip(tmp_path):
 
 def test_load_history_missing_file_returns_none(tmp_path):
     assert agent.load_history(str(tmp_path / "nope.jsonl")) is None
+
+
+def test_save_history_leaves_no_temp_file(tmp_path):
+    path = tmp_path / "session.jsonl"
+    agent.save_history(str(path), [{"role": "user", "content": "hi"}])
+    # The atomic swap should leave only the session file, no leftover temp files.
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_save_history_keeps_old_file_when_the_write_fails(tmp_path):
+    path = tmp_path / "session.jsonl"
+    path.write_text('{"role": "system", "content": "old"}\n', encoding="utf-8")
+
+    # object() is not JSON serializable, so the write fails partway through.
+    with pytest.raises(TypeError):
+        agent.save_history(str(path), [{"role": "user", "content": object()}])
+
+    # The original file is untouched and no temporary file is left behind.
+    assert path.read_text(encoding="utf-8") == '{"role": "system", "content": "old"}\n'
+    assert list(tmp_path.iterdir()) == [path]
 
 
 def test_parse_args_reads_session_flag():
