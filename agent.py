@@ -231,7 +231,12 @@ def main():
     # which makes the agent usable from a script instead of only interactively.
     if args.prompt:
         messages.append({"role": "user", "content": args.prompt})
-        run_turn(client, model, messages)
+        try:
+            run_turn(client, model, messages)
+        except KeyboardInterrupt:
+            # Ctrl+C stops the run and exits quietly rather than dumping a traceback.
+            print()
+            return
         if args.session:
             save_history(args.session, messages)
         return
@@ -251,7 +256,14 @@ def main():
             continue
 
         messages.append({"role": "user", "content": user_input})
-        run_turn(client, model, messages)
+        turn_start = len(messages)
+        try:
+            run_turn(client, model, messages)
+        except KeyboardInterrupt:
+            # Ctrl+C cancels just this turn. Drop anything it added so the history
+            # is not left with a half-finished tool call, then return to the prompt.
+            del messages[turn_start:]
+            print("\n(interrupted)\n")
         # Save after each turn so a session survives even if the process stops.
         if args.session:
             save_history(args.session, messages)
