@@ -81,6 +81,17 @@ script:
 python3 agent.py "list the files here"
 ```
 
+The tools that normally ask before acting (`write_file` overwriting a file,
+`run_command`) cannot prompt when there is no terminal, so from a script pass
+`--yes` to approve them automatically:
+
+```bash
+python3 agent.py --yes "tidy up the notes file"
+```
+
+Without `--yes`, a confirmation that cannot be answered is declined rather than
+left hanging.
+
 ## Saving and resuming a session
 
 Pass `--session FILE` to save the conversation and resume it next time:

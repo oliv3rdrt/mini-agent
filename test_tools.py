@@ -192,3 +192,39 @@ def test_fetch_url_dispatches(monkeypatch):
         lambda *a, **k: _FakeResponse("hi", content_type="text/plain"),
     )
     assert tools.dispatch("fetch_url", {"url": "https://example.com"}) == "hi"
+
+
+def _refuse_prompt(*_args, **_kwargs):
+    raise AssertionError("should not prompt when auto-approving")
+
+
+def test_write_file_auto_approves_overwrite_with_flag(tmp_path, monkeypatch):
+    path = tmp_path / "f.txt"
+    path.write_text("old", encoding="utf-8")
+    monkeypatch.setattr(tools, "AUTO_APPROVE", True)
+    monkeypatch.setattr("builtins.input", _refuse_prompt)
+
+    tools.write_file(str(path), "new")
+    assert path.read_text(encoding="utf-8") == "new"
+
+
+def test_write_file_declines_overwrite_without_an_answer(tmp_path, monkeypatch):
+    path = tmp_path / "f.txt"
+    path.write_text("old", encoding="utf-8")
+    monkeypatch.setattr(tools, "AUTO_APPROVE", False)
+
+    def no_input(*_args, **_kwargs):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", no_input)
+
+    result = tools.write_file(str(path), "new")
+    assert path.read_text(encoding="utf-8") == "old"
+    assert "declined" in result
+
+
+def test_run_command_auto_approves_with_flag(monkeypatch):
+    monkeypatch.setattr(tools, "AUTO_APPROVE", True)
+    monkeypatch.setattr("builtins.input", _refuse_prompt)
+
+    assert "hello" in tools.run_command("echo hello")

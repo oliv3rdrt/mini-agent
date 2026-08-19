@@ -206,11 +206,19 @@ def parse_args(argv=None):
         help="Load and save the conversation to a JSONL session file so it can "
         "be resumed later.",
     )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Auto-approve tool confirmations (overwriting a file, running a "
+        "command) so the agent can be used non-interactively.",
+    )
     return parser.parse_args(argv)
 
 
 def main():
     args = parse_args()
+    # Let tools approve their own confirmations when running non-interactively.
+    tools.AUTO_APPROVE = args.yes
     load_dotenv()
     # base_url lets us point at any OpenAI-compatible backend (a local Ollama
     # server, Groq, and so on). Left unset, it talks to OpenAI directly.
