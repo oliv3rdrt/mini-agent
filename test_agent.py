@@ -2,7 +2,9 @@
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
+from openai import APIConnectionError, APIStatusError
 
 import agent
 
@@ -138,3 +140,41 @@ def test_parse_args_combines_prompt_and_session():
 def test_parse_args_reads_yes_flag():
     assert agent.parse_args(["--yes"]).yes is True
     assert agent.parse_args([]).yes is False
+
+
+def _request():
+    return httpx.Request("POST", "http://localhost")
+
+
+def test_stream_with_retries_recovers_from_transient_errors(monkeypatch):
+    attempts = {"n": 0}
+
+    def flaky(client, model, messages):
+        attempts["n"] += 1
+        if attempts["n"] < agent.MAX_RETRIES:
+            raise APIConnectionError(request=_request())
+        return {"role": "assistant", "content": "ok"}
+
+    monkeypatch.setattr(agent, "stream_response", flaky)
+    monkeypatch.setattr(agent.time, "sleep", lambda *_: None)
+
+    result = agent.stream_with_retries(None, "model", [])
+    assert result == {"role": "assistant", "content": "ok"}
+    assert attempts["n"] == agent.MAX_RETRIES
+
+
+def test_stream_with_retries_does_not_retry_client_errors(monkeypatch):
+    response = httpx.Response(400, request=_request())
+    attempts = {"n": 0}
+
+    def bad_request(client, model, messages):
+        attempts["n"] += 1
+        raise APIStatusError("bad request", response=response, body=None)
+
+    monkeypatch.setattr(agent, "stream_response", bad_request)
+    monkeypatch.setattr(agent.time, "sleep", lambda *_: None)
+
+    with pytest.raises(APIStatusError):
+        agent.stream_with_retries(None, "model", [])
+    # A 4xx is a real error, so it is raised on the first try, not retried.
+    assert attempts["n"] == 1

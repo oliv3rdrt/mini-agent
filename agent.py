@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 
 from dotenv import load_dotenv
 from openai import OpenAI, APIConnectionError, AuthenticationError, APIStatusError
@@ -19,6 +20,10 @@ SYSTEM_PROMPT = (
 
 # Stop a single turn from looping on tools forever.
 MAX_STEPS = 10
+
+# Retry transient backend errors (rate limits and 5xx) a few times before giving up.
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 1.0
 
 
 def backend_hint():
@@ -110,10 +115,33 @@ def stream_response(client, model, messages):
     return message
 
 
+def stream_with_retries(client, model, messages):
+    """Call stream_response, retrying transient backend errors with backoff.
+
+    A 429 (rate limit) or a 5xx server error is usually temporary, and so is a
+    dropped connection, so retry a few times with exponential backoff. Anything
+    else, like a bad request or an auth failure, is raised straight away for the
+    caller to handle.
+    """
+    for attempt in range(MAX_RETRIES):
+        try:
+            return stream_response(client, model, messages)
+        except (APIConnectionError, APIStatusError) as error:
+            retryable = isinstance(error, APIConnectionError) or (
+                isinstance(error, APIStatusError)
+                and (error.status_code == 429 or error.status_code >= 500)
+            )
+            if not retryable or attempt == MAX_RETRIES - 1:
+                raise
+            delay = RETRY_BASE_DELAY * (2**attempt)
+            print(f"  backend busy, retrying in {delay:.0f}s...")
+            time.sleep(delay)
+
+
 def run_turn(client, model, messages):
     for _ in range(MAX_STEPS):
         try:
-            message = stream_response(client, model, messages)
+            message = stream_with_retries(client, model, messages)
         except APIConnectionError:
             print(f"\n{backend_hint()}\n")
             return
