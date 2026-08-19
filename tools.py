@@ -14,6 +14,26 @@ MAX_OUTPUT = 4000
 # so a huge download cannot tie things up.
 MAX_FETCH_BYTES = 2_000_000
 
+# When True, tools that would prompt for confirmation approve automatically.
+# agent.py sets this from the --yes command-line flag.
+AUTO_APPROVE = False
+
+
+def _confirm(prompt):
+    """Ask the user to confirm an action, returning True to proceed.
+
+    With AUTO_APPROVE (the --yes flag) it approves without asking. When there is
+    no interactive input to answer the prompt, for example a script or piped
+    stdin that is exhausted, input() raises EOFError and we decline rather than
+    crash, so a non-interactive run keeps going instead of blowing up.
+    """
+    if AUTO_APPROVE:
+        return True
+    try:
+        return input(prompt).strip().lower() == "y"
+    except EOFError:
+        return False
+
 
 def _root():
     """The sandbox root, if one is set via MINI_AGENT_ROOT, else None."""
@@ -58,7 +78,7 @@ def write_file(path, content):
     # Ask before clobbering a file that is already there. New files write freely.
     if p.exists():
         print(f"\n  {path} already exists.")
-        if input("  overwrite it? [y/N] ").strip().lower() != "y":
+        if not _confirm("  overwrite it? [y/N] "):
             return "Write was declined by the user."
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
@@ -80,7 +100,7 @@ def list_files(directory="."):
 def run_command(command):
     # Ask first so nothing touches the shell without a yes.
     print(f"\n  proposed command: {command}")
-    if input("  run it? [y/N] ").strip().lower() != "y":
+    if not _confirm("  run it? [y/N] "):
         return "Command was declined by the user."
     result = subprocess.run(
         command, shell=True, capture_output=True, text=True, timeout=60

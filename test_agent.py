@@ -111,3 +111,8 @@ def test_parse_args_combines_prompt_and_session():
     args = agent.parse_args(["do a thing", "--session", "s.jsonl"])
     assert args.prompt == "do a thing"
     assert args.session == "s.jsonl"
+
+
+def test_parse_args_reads_yes_flag():
+    assert agent.parse_args(["--yes"]).yes is True
+    assert agent.parse_args([]).yes is False
