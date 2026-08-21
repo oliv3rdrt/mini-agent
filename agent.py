@@ -161,10 +161,23 @@ def run_turn(client, model, messages):
 
         for call in tool_calls:
             name = call["function"]["name"]
+            raw_arguments = call["function"]["arguments"] or "{}"
             try:
-                arguments = json.loads(call["function"]["arguments"] or "{}")
+                arguments = json.loads(raw_arguments)
             except json.JSONDecodeError:
-                arguments = {}
+                # The model sent arguments that are not valid JSON. Tell it so it
+                # can fix them and retry, instead of dispatching with empty args
+                # and failing confusingly. A tool result is still appended so the
+                # tool call has its matching reply.
+                print(f"  [tool] {name} (invalid arguments)")
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call["id"],
+                        "content": f"Invalid arguments, not valid JSON: {raw_arguments}",
+                    }
+                )
+                continue
             print(f"  [tool] {name} {arguments}")
             result = tools.dispatch(name, arguments)
             messages.append(
