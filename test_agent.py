@@ -36,6 +36,20 @@ class _FakeStreamClient:
         return iter(self._chunks)
 
 
+class _SequencedClient:
+    """A client whose create() returns the next chunk stream on each call, so a
+    whole run_turn (a tool call, then a final reply) can be driven."""
+
+    def __init__(self, chunk_lists):
+        self._chunk_lists = list(chunk_lists)
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=self._create)
+        )
+
+    def _create(self, **_kwargs):
+        return iter(self._chunk_lists.pop(0))
+
+
 def test_stream_response_joins_streamed_text():
     client = _FakeStreamClient([_text_chunk("Hel"), _text_chunk("lo")])
     message = agent.stream_response(client, "model", [])
@@ -178,3 +192,27 @@ def test_stream_with_retries_does_not_retry_client_errors(monkeypatch):
         agent.stream_with_retries(None, "model", [])
     # A 4xx is a real error, so it is raised on the first try, not retried.
     assert attempts["n"] == 1
+
+
+def test_run_turn_reports_invalid_tool_arguments(monkeypatch):
+    # First response asks for a tool with broken JSON arguments; the second is a
+    # plain reply that ends the turn.
+    tool_call = [_tool_chunk(0, call_id="c1", name="read_file", arguments="{not json")]
+    reply = [_text_chunk("done")]
+    client = _SequencedClient([tool_call, reply])
+
+    dispatched = []
+    monkeypatch.setattr(
+        agent.tools, "dispatch", lambda name, args: dispatched.append((name, args))
+    )
+
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}]
+    agent.run_turn(client, "model", messages)
+
+    # The tool is not run with the bad arguments.
+    assert dispatched == []
+    # A tool result explaining the invalid arguments is fed back for that call.
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_messages) == 1
+    assert tool_messages[0]["tool_call_id"] == "c1"
+    assert "Invalid arguments" in tool_messages[0]["content"]
