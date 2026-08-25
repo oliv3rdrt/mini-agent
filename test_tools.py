@@ -228,3 +228,30 @@ def test_run_command_auto_approves_with_flag(monkeypatch):
     monkeypatch.setattr("builtins.input", _refuse_prompt)
 
     assert "hello" in tools.run_command("echo hello")
+
+
+def test_fetch_url_refuses_loopback_address():
+    assert tools.fetch_url("http://127.0.0.1/").startswith("Refusing")
+
+
+def test_fetch_url_refuses_localhost():
+    assert tools.fetch_url("http://localhost:8080/admin").startswith("Refusing")
+
+
+def test_fetch_url_refuses_cloud_metadata_address():
+    assert tools.fetch_url("http://169.254.169.254/latest/meta-data/").startswith("Refusing")
+
+
+def test_fetch_url_allows_a_public_host(monkeypatch):
+    # Pretend the host resolves to a public address, and stub the download.
+    monkeypatch.setattr(
+        tools.socket,
+        "getaddrinfo",
+        lambda *a, **k: [(None, None, None, None, ("93.184.216.34", 0))],
+    )
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda *a, **k: _FakeResponse("hi", content_type="text/plain"),
+    )
+    assert tools.fetch_url("http://example.com/") == "hi"
