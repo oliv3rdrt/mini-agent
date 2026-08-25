@@ -8,7 +8,7 @@ import tempfile
 import time
 
 from dotenv import load_dotenv
-from openai import OpenAI, APIConnectionError, AuthenticationError, APIStatusError
+from openai import APIConnectionError, APIStatusError, AuthenticationError, OpenAI
 
 import tools
 
@@ -86,9 +86,7 @@ def stream_response(client, model, messages):
             content_parts.append(delta.content)
 
         for piece in delta.tool_calls or []:
-            call = tool_calls.setdefault(
-                piece.index, {"id": None, "name": None, "arguments": ""}
-            )
+            call = tool_calls.setdefault(piece.index, {"id": None, "name": None, "arguments": ""})
             if piece.id:
                 call["id"] = piece.id
             if piece.function and piece.function.name:
@@ -233,9 +231,7 @@ def save_history(path, messages):
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(
-        description="A small command-line agent that can call tools."
-    )
+    parser = argparse.ArgumentParser(description="A small command-line agent that can call tools.")
     parser.add_argument(
         "prompt",
         nargs="?",
@@ -244,8 +240,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--session",
         metavar="FILE",
-        help="Load and save the conversation to a JSONL session file so it can "
-        "be resumed later.",
+        help="Load and save the conversation to a JSONL session file so it can be resumed later.",
     )
     parser.add_argument(
         "--yes",

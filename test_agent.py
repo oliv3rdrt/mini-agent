@@ -28,9 +28,7 @@ class _FakeStreamClient:
 
     def __init__(self, chunks):
         self._chunks = chunks
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self._create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **_kwargs):
         return iter(self._chunks)
@@ -42,9 +40,7 @@ class _SequencedClient:
 
     def __init__(self, chunk_lists):
         self._chunk_lists = list(chunk_lists)
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self._create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **_kwargs):
         return iter(self._chunk_lists.pop(0))
@@ -202,9 +198,7 @@ def test_run_turn_reports_invalid_tool_arguments(monkeypatch):
     client = _SequencedClient([tool_call, reply])
 
     dispatched = []
-    monkeypatch.setattr(
-        agent.tools, "dispatch", lambda name, args: dispatched.append((name, args))
-    )
+    monkeypatch.setattr(agent.tools, "dispatch", lambda name, args: dispatched.append((name, args)))
 
     messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}]
     agent.run_turn(client, "model", messages)

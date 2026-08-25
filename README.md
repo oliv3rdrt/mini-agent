@@ -136,6 +136,19 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
+## Linting and formatting
+
+The project uses [ruff](https://docs.astral.sh/ruff/) for linting and
+formatting. It comes in with the dev requirements above.
+
+```bash
+ruff check .
+ruff format --check .
+```
+
+Drop the `--check` to have ruff reformat the files in place. A GitHub Actions
+workflow runs the tests and both ruff checks on every push and pull request.
+
 ## Adding your own tool
 
 1. Write a function in `tools.py`.
