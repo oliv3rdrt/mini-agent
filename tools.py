@@ -105,9 +105,7 @@ def run_command(command):
     print(f"\n  proposed command: {command}")
     if not _confirm("  run it? [y/N] "):
         return "Command was declined by the user."
-    result = subprocess.run(
-        command, shell=True, capture_output=True, text=True, timeout=60
-    )
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=60)
     output = (result.stdout + result.stderr).strip()
     if len(output) > MAX_OUTPUT:
         output = output[:MAX_OUTPUT] + "\n... (truncated)"
@@ -239,9 +237,7 @@ TOOLS = [
             "description": "Read the contents of a text file.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Path to the file."}
-                },
+                "properties": {"path": {"type": "string", "description": "Path to the file."}},
                 "required": ["path"],
             },
         },
@@ -285,9 +281,7 @@ TOOLS = [
             "description": "Run a shell command. The user is asked to confirm first.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "command": {"type": "string", "description": "The command to run."}
-                },
+                "properties": {"command": {"type": "string", "description": "The command to run."}},
                 "required": ["command"],
             },
         },
