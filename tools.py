@@ -1,11 +1,14 @@
 """Tools the agent can call, plus the schemas the model sees."""
 
+import ipaddress
 import os
+import socket
 import subprocess
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Cap tool output so a big file or noisy command does not flood the context.
 MAX_OUTPUT = 4000
@@ -144,10 +147,41 @@ class _TextExtractor(HTMLParser):
         return "\n".join(self._parts)
 
 
+def _resolves_to_internal_address(host):
+    """Return True if the host resolves to a non-public address.
+
+    This keeps fetch_url from being pointed at internal services, for example
+    localhost, private ranges, or the cloud metadata endpoint at 169.254.169.254.
+    If the host does not resolve at all, return False and let the normal fetch
+    fail with a clear network error.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return True
+    return False
+
+
 def fetch_url(url):
     # Only fetch over the web, never file:// or other local schemes.
     if not url.lower().startswith(("http://", "https://")):
         return "Only http and https URLs are supported."
+    host = urlparse(url).hostname
+    if not host:
+        return f"Could not find a host in {url}"
+    if _resolves_to_internal_address(host):
+        return f"Refusing to fetch an internal or private address: {host}"
     # A user agent keeps some sites from refusing the request outright.
     request = urllib.request.Request(url, headers={"User-Agent": "mini-agent"})
     try:
@@ -262,7 +296,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "fetch_url",
-            "description": "Fetch a web page or text URL and return its readable text.",
+            "description": "Fetch a public web page or text URL and return its readable text.",
             "parameters": {
                 "type": "object",
                 "properties": {
