@@ -210,3 +210,54 @@ def test_run_turn_reports_invalid_tool_arguments(monkeypatch):
     assert len(tool_messages) == 1
     assert tool_messages[0]["tool_call_id"] == "c1"
     assert "Invalid arguments" in tool_messages[0]["content"]
+
+
+def test_trim_history_keeps_short_conversations_unchanged():
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}]
+    # Nothing to drop, so the same list is handed back untouched.
+    assert agent.trim_history(messages, limit=10) is messages
+
+
+def test_trim_history_keeps_system_message_and_recent_tail():
+    system = {"role": "system", "content": "s"}
+    turns = [{"role": "user", "content": str(i)} for i in range(20)]
+    trimmed = agent.trim_history([system] + turns, limit=6)
+    # The system message plus the five most recent turns.
+    assert trimmed[0] == system
+    assert len(trimmed) == 6
+    assert [m["content"] for m in trimmed[1:]] == ["15", "16", "17", "18", "19"]
+
+
+def test_trim_history_without_system_message_keeps_recent_tail():
+    turns = [{"role": "user", "content": str(i)} for i in range(10)]
+    trimmed = agent.trim_history(turns, limit=3)
+    assert [m["content"] for m in trimmed] == ["7", "8", "9"]
+
+
+def test_trim_history_drops_orphan_tool_result_at_the_window_start():
+    system = {"role": "system", "content": "s"}
+    history = [
+        system,
+        {"role": "user", "content": "old"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "t1",
+                    "type": "function",
+                    "function": {"name": "list_files", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": "a"},
+        {"role": "assistant", "content": "done"},
+        {"role": "user", "content": "next"},
+    ]
+    # A limit of 4 keeps the system message plus the last three, and those three
+    # begin with the tool result whose tool call was trimmed away. That orphan is
+    # dropped so the window never starts on a tool message.
+    trimmed = agent.trim_history(history, limit=4)
+    assert trimmed[0] == system
+    assert [m["role"] for m in trimmed[1:]] == ["assistant", "user"]
+    assert not any(m["role"] == "tool" for m in trimmed)
