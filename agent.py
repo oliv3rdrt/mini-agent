@@ -181,8 +181,8 @@ def trim_history(messages, limit=MAX_HISTORY_MESSAGES):
     return system + tail[start:]
 
 
-def run_turn(client, model, messages):
-    for _ in range(MAX_STEPS):
+def run_turn(client, model, messages, max_steps=MAX_STEPS):
+    for _ in range(max_steps):
         try:
             message = stream_with_retries(client, model, trim_history(messages))
         except APIConnectionError:
@@ -275,6 +275,31 @@ def save_history(path, messages):
         raise
 
 
+def _positive_int(value):
+    """An argparse type for a step count that has to be at least one."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be 1 or greater")
+    return number
+
+
+def resolve_system_prompt(value):
+    """Work out the system prompt for this run.
+
+    With no value, fall back to the built-in default. A value that starts with @
+    is read as a path to a file, so a longer, task-specific prompt can live in a
+    file instead of on the command line. Anything else is used as the prompt text
+    directly.
+    """
+    if not value:
+        return SYSTEM_PROMPT
+    if value.startswith("@"):
+        path = value[1:]
+        with open(path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    return value
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="A small command-line agent that can call tools.")
     parser.add_argument(
@@ -293,6 +318,27 @@ def parse_args(argv=None):
         help="Auto-approve tool confirmations (overwriting a file, running a "
         "command) so the agent can be used non-interactively.",
     )
+    parser.add_argument(
+        "--model",
+        help="Model to use for this run. Overrides the OPENAI_MODEL environment variable.",
+    )
+    parser.add_argument(
+        "--base-url",
+        metavar="URL",
+        help="OpenAI-compatible base URL for this run. Overrides OPENAI_BASE_URL.",
+    )
+    parser.add_argument(
+        "--system-prompt",
+        metavar="TEXT",
+        help="System prompt for this run, given as a string or as @path to read "
+        "it from a file. Overrides the built-in default.",
+    )
+    parser.add_argument(
+        "--max-steps",
+        type=_positive_int,
+        metavar="N",
+        help="Most tool steps allowed in a single turn. Overrides the default.",
+    )
     return parser.parse_args(argv)
 
 
@@ -301,10 +347,20 @@ def main():
     # Let tools approve their own confirmations when running non-interactively.
     tools.AUTO_APPROVE = args.yes
     load_dotenv()
+
+    # Command-line flags win over the environment, which wins over the built-in
+    # defaults, so a single run can use a different model, backend, prompt, or
+    # step cap without editing .env.
     # base_url lets us point at any OpenAI-compatible backend (a local Ollama
     # server, Groq, and so on). Left unset, it talks to OpenAI directly.
-    client = OpenAI(base_url=os.getenv("OPENAI_BASE_URL") or None)
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    base_url = args.base_url or os.getenv("OPENAI_BASE_URL") or None
+    client = OpenAI(base_url=base_url)
+    model = args.model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    max_steps = args.max_steps if args.max_steps is not None else MAX_STEPS
+    try:
+        system_prompt = resolve_system_prompt(args.system_prompt)
+    except OSError as error:
+        sys.exit(f"Could not read the system prompt file: {error}")
 
     check_backend(client)
 
@@ -314,14 +370,14 @@ def main():
     if messages:
         print(f"Resumed {len(messages)} messages from {args.session}.\n")
     else:
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": system_prompt}]
 
     # Single-prompt mode: run one prompt straight from the command line and exit,
     # which makes the agent usable from a script instead of only interactively.
     if args.prompt:
         messages.append({"role": "user", "content": args.prompt})
         try:
-            run_turn(client, model, messages)
+            run_turn(client, model, messages, max_steps)
         except KeyboardInterrupt:
             # Ctrl+C stops the run and exits quietly rather than dumping a traceback.
             print()
@@ -347,7 +403,7 @@ def main():
         messages.append({"role": "user", "content": user_input})
         turn_start = len(messages)
         try:
-            run_turn(client, model, messages)
+            run_turn(client, model, messages, max_steps)
         except KeyboardInterrupt:
             # Ctrl+C cancels just this turn. Drop anything it added so the history
             # is not left with a half-finished tool call, then return to the prompt.

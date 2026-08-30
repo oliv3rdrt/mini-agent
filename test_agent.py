@@ -261,3 +261,68 @@ def test_trim_history_drops_orphan_tool_result_at_the_window_start():
     assert trimmed[0] == system
     assert [m["role"] for m in trimmed[1:]] == ["assistant", "user"]
     assert not any(m["role"] == "tool" for m in trimmed)
+
+
+def test_parse_args_reads_model_and_base_url():
+    args = agent.parse_args(["--model", "gpt-4o", "--base-url", "http://localhost:1234/v1"])
+    assert args.model == "gpt-4o"
+    assert args.base_url == "http://localhost:1234/v1"
+
+
+def test_parse_args_reads_system_prompt():
+    assert agent.parse_args(["--system-prompt", "be terse"]).system_prompt == "be terse"
+
+
+def test_parse_args_reads_max_steps():
+    assert agent.parse_args(["--max-steps", "3"]).max_steps == 3
+
+
+def test_parse_args_rejects_a_non_positive_max_steps():
+    with pytest.raises(SystemExit):
+        agent.parse_args(["--max-steps", "0"])
+
+
+def test_parse_args_leaves_overrides_unset_by_default():
+    # Without the flags the values are None, so the env vars and defaults apply.
+    args = agent.parse_args([])
+    assert args.model is None
+    assert args.base_url is None
+    assert args.system_prompt is None
+    assert args.max_steps is None
+
+
+def test_resolve_system_prompt_uses_the_default_when_not_given():
+    assert agent.resolve_system_prompt(None) == agent.SYSTEM_PROMPT
+
+
+def test_resolve_system_prompt_uses_a_literal_string():
+    assert agent.resolve_system_prompt("just this") == "just this"
+
+
+def test_resolve_system_prompt_reads_an_at_file(tmp_path):
+    path = tmp_path / "prompt.txt"
+    path.write_text("  from a file  \n", encoding="utf-8")
+    assert agent.resolve_system_prompt(f"@{path}") == "from a file"
+
+
+class _AlwaysToolClient:
+    """A client that asks for the same tool call on every request, so a turn only
+    ends when it reaches the step cap."""
+
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **_kwargs):
+        return iter([_tool_chunk(0, call_id="c", name="list_files", arguments="{}")])
+
+
+def test_run_turn_stops_after_max_steps(monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr(agent.tools, "dispatch", lambda name, args: calls.append(name) or "ok")
+
+    messages = [{"role": "system", "content": "s"}, {"role": "user", "content": "hi"}]
+    agent.run_turn(_AlwaysToolClient(), "model", messages, max_steps=2)
+
+    # The cap stops the loop after exactly two tool steps.
+    assert len(calls) == 2
+    assert "too many tool steps" in capsys.readouterr().out

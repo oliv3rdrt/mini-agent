@@ -92,6 +92,23 @@ python3 agent.py --yes "tidy up the notes file"
 Without `--yes`, a confirmation that cannot be answered is declined rather than
 left hanging.
 
+## Overriding the model, prompt and step cap
+
+Any single run can override the model, backend, system prompt, and tool-step
+cap straight from the command line, without touching `.env`:
+
+```bash
+python3 agent.py --model llama3.2 --base-url http://localhost:11434/v1
+python3 agent.py --system-prompt "You are a terse shell helper."
+python3 agent.py --system-prompt @prompts/reviewer.txt --max-steps 20
+```
+
+- `--model` and `--base-url` fall back to `OPENAI_MODEL` and `OPENAI_BASE_URL`.
+- `--system-prompt` takes a string, or `@path` to read the prompt from a file,
+  and falls back to the built-in default.
+- `--max-steps` sets how many tool steps a single turn may take before it stops,
+  falling back to the default.
+
 ## Saving and resuming a session
 
 Pass `--session FILE` to save the conversation and resume it next time:
