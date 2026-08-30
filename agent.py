@@ -21,6 +21,12 @@ SYSTEM_PROMPT = (
 # Stop a single turn from looping on tools forever.
 MAX_STEPS = 10
 
+# Keep at most this many of the most recent messages, on top of the system
+# message, when sending a request. A long interactive session or a resumed
+# session file would otherwise grow past the model context window and every
+# request would start failing.
+MAX_HISTORY_MESSAGES = 40
+
 # Retry transient backend errors (rate limits and 5xx) a few times before giving up.
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1.0
@@ -136,10 +142,49 @@ def stream_with_retries(client, model, messages):
             time.sleep(delay)
 
 
+def trim_history(messages, limit=MAX_HISTORY_MESSAGES):
+    """Return a view of messages that fits within limit messages to send.
+
+    The full conversation is kept in memory (and in the session file), but only
+    the system message plus the most recent messages are sent to the model, so a
+    long session cannot outgrow the context window. When the history already fits
+    it is returned unchanged.
+
+    Tool results have to stay attached to the assistant tool call that produced
+    them, so if the cut lands in the middle of a tool exchange the window is
+    nudged forward past the leftover tool messages. Otherwise the backend would
+    reject a tool result that has no matching tool call ahead of it.
+    """
+    if len(messages) <= limit:
+        return messages
+
+    # Always keep the system message, when there is one, so the model does not
+    # lose its instructions no matter how much older history is dropped.
+    system = []
+    rest = messages
+    if messages[0].get("role") == "system":
+        system = [messages[0]]
+        rest = messages[1:]
+
+    keep = limit - len(system)
+    if keep <= 0:
+        return system
+
+    tail = rest[-keep:]
+
+    # Drop any orphan tool results at the front of the window whose tool call was
+    # left behind in the part we trimmed off.
+    start = 0
+    while start < len(tail) and tail[start].get("role") == "tool":
+        start += 1
+
+    return system + tail[start:]
+
+
 def run_turn(client, model, messages):
     for _ in range(MAX_STEPS):
         try:
-            message = stream_with_retries(client, model, messages)
+            message = stream_with_retries(client, model, trim_history(messages))
         except APIConnectionError:
             print(f"\n{backend_hint()}\n")
             return

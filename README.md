@@ -104,6 +104,11 @@ The file is a JSONL log, one message per line, rewritten after every turn. If
 the file already exists the conversation picks up where it left off, so you can
 stop and come back to it, or keep it around as a record of a past session.
 
+However long a session runs, only the system message and the most recent
+messages are sent to the model on each request, so the conversation keeps
+working even as the log grows past the model context window. The full history
+still lives in the session file.
+
 ## Tools
 
 | Tool | What it does |
